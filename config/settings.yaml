@@ -1,0 +1,18 @@
+strategy:
+  max_entry_odds: 3.5
+  stake: 10.0
+  commission_rate: 0.05
+  goal_spike_threshold: 0.30
+  stop_loss_minute: 60
+  min_market_volume: 50000
+  daily_loss_limit: 50.0
+
+streaming:
+  target_competitions:
+    - "Premier League"
+    - "Championship"
+  max_reconnect_attempts: 5
+  reconnect_base_delay_s: 1.0
+
+logging:
+  level: INFO
