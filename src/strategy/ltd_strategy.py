@@ -1,9 +1,7 @@
-"""Lay-the-Draw (LTD) strategy implementation.
+"""Lay-the-Draw (LTD) strategy — entry/exit state machine.
 
-Core state machine that evaluates entry and exit conditions on every
-market book update.  Orchestrates goal detection, stop-loss checks, and
-risk management through delegation — no Betfair API calls or raw SQL
-inline.
+Pure business logic. No Betfair API calls or raw SQL inline.
+All config values are injected; no hardcoded numbers.
 """
 
 from __future__ import annotations
@@ -19,29 +17,25 @@ from src.config.settings import StrategyConfig
 from src.db.repository import Repository
 from src.goal_detection.detector import GoalDetector
 from src.risk.risk_manager import RiskManager
-from src.risk.stop_loss import check_pnl_stop, check_time_stop
+from src.risk.stop_loss import check_time_stop
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Position state machine
-# ---------------------------------------------------------------------------
+# Spec-defined exit reason enum values (Section 3.5).
+_EXIT_GOAL = "goal_detected"
+_EXIT_TIME = "stop_loss_time"
+_EXIT_KILL = "kill_switch"
 
 
 class PositionState(Enum):
-    """States a single market position can be in."""
-
-    NONE = auto()     # No position — evaluate entry
-    ENTERED = auto()  # Lay order placed and matched — evaluate exit
-    EXITING = auto()  # Exit order placed, awaiting match (paper: skip)
-    CLOSED = auto()   # Trade complete — ignore further ticks
+    NONE = auto()
+    ENTERED = auto()
+    EXITING = auto()
+    CLOSED = auto()
 
 
 @dataclass
 class _Position:
-    """Per-market position tracking."""
-
     market_id: str
     db_market_id: uuid.UUID
     betfair_market_id: str
@@ -58,20 +52,8 @@ class _Position:
     exit_order_id: uuid.UUID | None = None
 
 
-# ---------------------------------------------------------------------------
-# LTD Strategy
-# ---------------------------------------------------------------------------
-
-
 class LTDStrategy:
-    """Lay-the-Draw strategy — one instance per bot run.
-
-    Receives market book callbacks from ``MarketStream``, evaluates
-    entry and exit conditions, and manages per-market position state.
-
-    All config values are injected; no hardcoded numbers.  All I/O
-    goes through ``Repository`` and ``RiskManager``.
-    """
+    """Lay-the-Draw strategy — one instance per bot run."""
 
     def __init__(
         self,
@@ -86,15 +68,9 @@ class LTDStrategy:
         self._goal_detector = goal_detector
         self._repository = repository
         self._run_id = run_id
-
-        # Per-market position state
         self._positions: dict[str, _Position] = {}
 
-    # ------------------------------------------------------------------
-    # Public callback — called by MarketStream
-    # ------------------------------------------------------------------
-
-    async def on_market_book(
+    def on_market_book(
         self,
         market_id: str,
         db_market_id: uuid.UUID,
@@ -109,11 +85,8 @@ class LTDStrategy:
     ) -> None:
         """Process a market book update for strategy decisions.
 
-        Called by ``MarketStream._handle_market_book`` after tick
-        persistence.  Must not raise — all errors are logged and
-        swallowed so the streaming loop is never interrupted.
+        Must not raise — errors are logged so the stream is never interrupted.
         """
-        # Ensure position tracking exists
         if market_id not in self._positions:
             self._positions[market_id] = _Position(
                 market_id=market_id,
@@ -125,187 +98,117 @@ class LTDStrategy:
             )
 
         position = self._positions[market_id]
-
         try:
             if position.state == PositionState.NONE:
-                await self._evaluate_entry(
-                    position, draw_lay_price, volume, timestamp
-                )
+                self._evaluate_entry(position, draw_lay_price, volume, timestamp)
             elif position.state == PositionState.ENTERED:
-                await self._evaluate_exit(
-                    position, draw_lay_price, draw_back_price, timestamp
-                )
-            # EXITING and CLOSED: no action
+                self._evaluate_exit(position, draw_lay_price, draw_back_price, timestamp)
         except Exception:
-            logger.exception(
-                "Strategy error for market %s (%s)", market_id, event_name
-            )
+            logger.exception("Strategy error for market %s (%s)", market_id, event_name)
 
-    # ------------------------------------------------------------------
-    # Entry logic
-    # ------------------------------------------------------------------
-
-    async def _evaluate_entry(
+    def _evaluate_entry(
         self,
         position: _Position,
         draw_lay_price: Decimal,
         volume: int,
         timestamp: datetime,
     ) -> None:
-        """Check entry conditions and place a lay order if all pass.
-
-        Conditions (all must be true):
-        1. Draw lay price ≤ ``max_entry_odds``
-        2. Market volume ≥ ``min_market_volume``
-        3. Kill switch is not active
-        4. No position already open (enforced by state machine)
-        """
-        # Condition 1: price check
-        max_odds = Decimal(str(self._config.max_entry_odds))
-        if draw_lay_price > max_odds:
+        """Check entry conditions and place a lay order if all pass."""
+        # Pre-match only — reject if kick_off is known and match has started
+        if position.kick_off is not None and timestamp >= position.kick_off:
             return
-
-        # Condition 2: volume check
+        if draw_lay_price > Decimal(str(self._config.max_entry_odds)):
+            return
         if volume < self._config.min_market_volume:
             return
-
-        # Condition 3: kill switch
         if self._risk_manager.check_kill_switch():
-            logger.warning(
-                "Entry skipped — kill switch active: %s", position.event_name
+            logger.warning("Entry skipped — kill switch active: %s", position.event_name)
+            return
+        open_count = sum(1 for p in self._positions.values() if p.state == PositionState.ENTERED)
+        if open_count >= self._config.max_open_positions:
+            logger.debug(
+                "Entry skipped — max positions (%d) reached: %s",
+                self._config.max_open_positions, position.event_name,
             )
             return
 
-        # Condition 4 is enforced by state == NONE
-
         stake = Decimal(str(self._config.stake))
+        liability = self._risk_manager.calculate_liability(stake, draw_lay_price)
+        if liability > Decimal(str(self._config.max_liability_per_bet)):
+            logger.warning(
+                "Entry skipped — liability %.2f exceeds cap %.2f: %s",
+                liability, self._config.max_liability_per_bet, position.event_name,
+            )
+            return
 
-        # ---- Liability calculation (mandatory pre-order) ----
-        liability = self._risk_manager.calculate_liability(
-            stake, draw_lay_price
-        )
         logger.info(
             "ENTRY | %s | Lay %.2f | Stake GBP %.2f | Liability GBP %.2f",
-            position.event_name,
-            draw_lay_price,
-            stake,
-            liability,
+            position.event_name, draw_lay_price, stake, liability,
         )
 
-        # ---- Place lay order ----
-        order = await self._repository.insert_order(
+        order = self._repository.insert_order(
             market_id=position.db_market_id,
             run_id=self._run_id,
             side="LAY",
             price=draw_lay_price,
             size=stake,
-            status="matched",  # paper mode: immediate fill
+            status="matched",
             betfair_bet_id=f"paper_{uuid.uuid4().hex[:12]}",
         )
 
-        # ---- Update state ----
         position.state = PositionState.ENTERED
         position.entry_lay_price = draw_lay_price
         position.entry_stake = stake
         position.entry_order_id = order.id
         position.entry_timestamp = timestamp
-
-        # ---- Initialise goal detector with reference price ----
         self._goal_detector.init_market(position.market_id, draw_lay_price)
+        logger.info("Position OPEN | %s @ %.2f | order=%s", position.event_name, draw_lay_price, order.id)
 
-        logger.info(
-            "Position OPEN | %s @ %.2f | order=%s",
-            position.event_name,
-            draw_lay_price,
-            order.id,
-        )
-
-    # ------------------------------------------------------------------
-    # Exit logic
-    # ------------------------------------------------------------------
-
-    async def _evaluate_exit(
+    def _evaluate_exit(
         self,
         position: _Position,
         draw_lay_price: Decimal,
         draw_back_price: Decimal,
         timestamp: datetime,
     ) -> None:
-        """Check exit conditions and green-up if any trigger fires.
-
-        Exit triggers (priority order):
-        1. Goal detected (price spike ≥ threshold)
-        2. Time stop (match minute ≥ configured limit)
-        3. P&L stop (daily loss limit breached)
-        """
+        """Check exit conditions and green-up if any trigger fires."""
         assert position.entry_lay_price is not None
         assert position.entry_stake is not None
 
-        # 1. Goal detection
-        goal_result = self._goal_detector.on_tick(
-            position.market_id, draw_lay_price, draw_back_price, timestamp
-        )
+        # Kill switch takes absolute priority — back the position immediately
+        if self._risk_manager.check_kill_switch():
+            self._green_up(position, draw_back_price, _EXIT_KILL)
+            return
 
-        # 2. Time stop
-        market_minute = self._compute_market_minute(
-            timestamp, position.kick_off
-        )
-        time_result = check_time_stop(
-            market_minute, self._config.stop_loss_minute
-        )
+        goal_result = self._goal_detector.on_tick(position.market_id, draw_lay_price, draw_back_price, timestamp)
+        market_minute = self._compute_market_minute(timestamp, position.kick_off)
+        time_result = check_time_stop(market_minute, self._config.stop_loss_minute)
 
-        # 3. P&L stop (uses running daily P&L, not per-position)
-        pnl_result = check_pnl_stop(
-            self._risk_manager.daily_pnl, self._config.daily_loss_limit
-        )
-
-        # ---- Determine exit reason (priority order) ----
         exit_reason: str | None = None
         if goal_result.goal_detected:
-            exit_reason = f"goal_detected_{goal_result.reason}"
+            exit_reason = _EXIT_GOAL
         elif time_result.should_exit:
-            exit_reason = time_result.reason
-        elif pnl_result.should_exit:
-            exit_reason = pnl_result.reason
+            exit_reason = _EXIT_TIME
 
         if exit_reason is None:
             return
 
-        # ---- Execute green-up ----
-        await self._green_up(position, draw_back_price, exit_reason, timestamp)
+        self._green_up(position, draw_back_price, exit_reason)
 
-    async def _green_up(
-        self,
-        position: _Position,
-        draw_back_price: Decimal,
-        exit_reason: str,
-        timestamp: datetime,  # noqa: ARG002  reserved for future use
-    ) -> None:
-        """Place the exit back order and record the trade.
-
-        Args:
-            position: The open position to close.
-            draw_back_price: Current best back price for green-up.
-            exit_reason: Reason string for the exit.
-        """
+    def _green_up(self, position: _Position, draw_back_price: Decimal, exit_reason: str) -> None:
+        """Place the exit back order and record the trade."""
         assert position.entry_lay_price is not None
         assert position.entry_stake is not None
 
-        # Calculate green-up stake
         back_stake = self._risk_manager.calculate_green_up_stake(
             position.entry_stake, position.entry_lay_price, draw_back_price
         )
-
         logger.info(
             "EXIT | %s | Reason: %s | Back %.2f | Stake GBP %.2f",
-            position.event_name,
-            exit_reason,
-            draw_back_price,
-            back_stake,
+            position.event_name, exit_reason, draw_back_price, back_stake,
         )
 
-        # Place back order
-        exit_order = await self._repository.insert_order(
+        exit_order = self._repository.insert_order(
             market_id=position.db_market_id,
             run_id=self._run_id,
             side="BACK",
@@ -314,19 +217,11 @@ class LTDStrategy:
             status="matched",
         )
 
-        # ---- P&L calculation ----
-        # Green-up profit per outcome:
-        #   profit = lay_stake × (back_odds - lay_odds) / back_odds
-        gross_pnl = self._calculate_gross_pnl(
-            position.entry_stake, position.entry_lay_price, draw_back_price
-        )
-        commission = self._risk_manager.calculate_commission(
-            gross_pnl, self._config.commission_rate
-        )
+        gross_pnl = self._calculate_gross_pnl(position.entry_stake, position.entry_lay_price, draw_back_price)
+        commission = self._risk_manager.calculate_commission(gross_pnl, self._config.commission_rate)
         net_pnl = gross_pnl - commission
 
-        # Record trade
-        trade = await self._repository.insert_trade(
+        self._repository.insert_trade(
             market_id=position.db_market_id,
             run_id=self._run_id,
             entry_order_id=position.entry_order_id,
@@ -340,13 +235,9 @@ class LTDStrategy:
             exit_reason=exit_reason,
         )
 
-        # Update risk manager P&L
-        await self._risk_manager.update_pnl(net_pnl)
-
-        # Clean up goal detector
+        self._risk_manager.update_pnl(net_pnl)
         self._goal_detector.reset_market(position.market_id)
 
-        # Mark closed
         position.state = PositionState.CLOSED
         position.exit_back_price = draw_back_price
         position.exit_stake = back_stake
@@ -354,53 +245,20 @@ class LTDStrategy:
 
         logger.info(
             "Trade CLOSED | %s | Gross %.2f | Commission %.2f | Net %.2f | %s",
-            position.event_name,
-            gross_pnl,
-            commission,
-            net_pnl,
-            exit_reason,
+            position.event_name, gross_pnl, commission, net_pnl, exit_reason,
         )
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
-    def _compute_market_minute(
-        current_time: datetime,
-        kick_off: datetime | None,
-    ) -> int:
-        """Estimate the current match minute.
-
-        Args:
-            current_time: The current UTC timestamp.
-            kick_off: The scheduled kick-off time (may be None).
-
-        Returns:
-            Elapsed minutes since kick-off, or 0 if pre-match or unknown.
-        """
+    def _compute_market_minute(current_time: datetime, kick_off: datetime | None) -> int:
+        """Elapsed minutes since kick-off, or 0 if pre-match or unknown."""
         if kick_off is None:
             return 0
         elapsed = (current_time - kick_off).total_seconds()
-        if elapsed <= 0:
-            return 0
-        return int(elapsed / 60)
+        return max(0, int(elapsed / 60))
 
     @staticmethod
-    def _calculate_gross_pnl(
-        lay_stake: Decimal,
-        lay_odds: Decimal,
-        back_odds: Decimal,
-    ) -> Decimal:
-        """Compute gross P&L for the green-up.
-
-        Equal-profit formula::
-
-            profit = lay_stake × (back_odds − lay_odds) / back_odds
-
-        Positive profit = goal correctly detected and odds spiked.
-        Negative profit = time stop-loss (odds drifted against us).
-        """
+    def _calculate_gross_pnl(lay_stake: Decimal, lay_odds: Decimal, back_odds: Decimal) -> Decimal:
+        """Green-up P&L: lay_stake × (back_odds − lay_odds) / back_odds."""
         if back_odds == Decimal("0"):
             return Decimal("0")
         return lay_stake * (back_odds - lay_odds) / back_odds

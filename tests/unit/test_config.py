@@ -39,9 +39,11 @@ def test_load_config_valid(tmp_path: Path) -> None:
     assert config.strategy.stop_loss_minute == 60
     assert config.strategy.min_market_volume == 50_000
     assert config.strategy.daily_loss_limit == 50.0
-    assert config.streaming.max_reconnect_attempts == 5
-    assert config.streaming.reconnect_base_delay_s == 1.0
+    assert config.strategy.max_open_positions == 3
+    assert config.strategy.max_liability_per_bet == 5.0
+    assert "Premier League" in config.streaming.target_competitions
     assert config.logging.level == "INFO"
+    assert config.paper_mode is True
 
 
 def test_load_config_missing_file(tmp_path: Path) -> None:
@@ -94,6 +96,8 @@ def test_strategy_config_defaults() -> None:
     assert cfg.max_entry_odds == 3.5
     assert cfg.stake == 10.0
     assert cfg.daily_loss_limit == 50.0
+    assert cfg.max_open_positions == 3
+    assert cfg.max_liability_per_bet == 5.0
 
 
 def test_strategy_config_rejects_out_of_range() -> None:

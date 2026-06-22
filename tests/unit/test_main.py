@@ -1,25 +1,44 @@
-"""Unit tests for main.py — control flow with mocked dependencies."""
+"""Unit tests for main() — patches all external I/O."""
 
 from __future__ import annotations
 
-import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+import uuid
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.exceptions import BetfairAuthError, BetfairStreamError
+from src.exceptions import BetfairAuthError
+from src.config.settings import ConfigError
+
+
+def _mock_run():
+    run = MagicMock()
+    run.id = uuid.uuid4()
+    return run
 
 
 # ---------------------------------------------------------------------------
-# Helper: build a mock session factory that yields an AsyncMock session
+# Config errors
 # ---------------------------------------------------------------------------
 
-def _mock_session_factory() -> MagicMock:
-    """Return a mock session factory whose context manager yields an AsyncMock."""
-    mock_session = AsyncMock()
-    factory = MagicMock()
-    factory.return_value.__aenter__.return_value = mock_session
-    return factory
+
+def test_config_error_exits_1() -> None:
+    from src.main import main
+    with patch("src.main.load_config", side_effect=ConfigError("missing field")), \
+         patch("src.main.load_secrets", MagicMock()), \
+         patch("src.main.setup_logging", MagicMock()):
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+    assert exc_info.value.code == 1
+
+
+def test_secrets_error_exits_1() -> None:
+    from src.main import main
+    with patch("src.main.load_config", MagicMock(return_value=MagicMock())), \
+         patch("src.main.load_secrets", side_effect=ConfigError("missing BETFAIR_APP_KEY")):
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+    assert exc_info.value.code == 1
 
 
 # ---------------------------------------------------------------------------
@@ -27,142 +46,142 @@ def _mock_session_factory() -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_main_auth_failure() -> None:
-    """Auth failure should exit with code 1 after ending the run."""
-    mock_repo = MagicMock()
-    mock_repo.create_run = AsyncMock(return_value=MagicMock())
-    mock_repo.end_run = AsyncMock()
+def test_auth_failure_exits_1() -> None:
+    mock_run = _mock_run()
+    mock_repo_instance = MagicMock()
+    mock_repo_instance.create_run.return_value = mock_run
 
-    with (
-        patch("src.main.load_config") as mock_load_cfg,
-        patch("src.main.load_secrets") as mock_load_sec,
-        patch("src.main.setup_logging"),
-        patch("src.main.create_session_factory", return_value=_mock_session_factory()),
-        patch("src.main.Repository", return_value=mock_repo),
-        patch("src.main.BetfairAuth") as mock_auth_cls,
-    ):
-        mock_load_cfg.return_value = MagicMock()
-        mock_load_cfg.return_value.logging.level = "INFO"
-        mock_load_sec.return_value = MagicMock()
+    mock_auth_cls = MagicMock()
+    mock_auth_cls.return_value.login.side_effect = BetfairAuthError("Invalid credentials")
 
-        mock_auth = mock_auth_cls.return_value
-        mock_auth.login.side_effect = BetfairAuthError("Bad cert")
-
-        from src.main import main
-
+    from src.main import main
+    with patch("src.main.load_config", MagicMock(return_value=MagicMock())), \
+         patch("src.main.load_secrets", MagicMock(return_value=MagicMock(database_url="postgresql+psycopg2://x"))), \
+         patch("src.main.setup_logging", MagicMock()), \
+         patch("src.main.get_session", MagicMock(return_value=MagicMock())), \
+         patch("src.main.dispose_engine", MagicMock()), \
+         patch("src.main.Repository", MagicMock(return_value=mock_repo_instance)), \
+         patch("src.main.BetfairAuth", mock_auth_cls):
         with pytest.raises(SystemExit) as exc_info:
-            await main()
-
-        assert exc_info.value.code == 1
-        mock_repo.end_run.assert_called_once()
+            main()
+    assert exc_info.value.code == 1
 
 
 # ---------------------------------------------------------------------------
-# Streaming failure
+# KeyboardInterrupt — graceful shutdown
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_main_streaming_failure() -> None:
-    """Streaming failure should trigger graceful shutdown."""
-    mock_repo = MagicMock()
-    mock_repo.create_run = AsyncMock(return_value=MagicMock())
-    mock_repo.end_run = AsyncMock()
+def test_keyboard_interrupt_shuts_down_cleanly() -> None:
+    mock_run = _mock_run()
+    mock_repo_instance = MagicMock()
+    mock_repo_instance.create_run.return_value = mock_run
 
+    mock_session = MagicMock()
+    mock_auth_instance = MagicMock()
+    mock_auth_instance.login.return_value = MagicMock()
+    mock_auth_instance.get_competition_ids.return_value = {"Premier League": "10932509"}
+
+    mock_flumine_instance = MagicMock()
+    mock_flumine_instance.run.side_effect = KeyboardInterrupt
+    mock_dispose = MagicMock()
+
+    from src.main import main
+    with patch("src.main.load_config", MagicMock(return_value=MagicMock())), \
+         patch("src.main.load_secrets", MagicMock(return_value=MagicMock(database_url="postgresql+psycopg2://x"))), \
+         patch("src.main.setup_logging", MagicMock()), \
+         patch("src.main.get_session", MagicMock(return_value=mock_session)), \
+         patch("src.main.dispose_engine", mock_dispose), \
+         patch("src.main.Repository", MagicMock(return_value=mock_repo_instance)), \
+         patch("src.main.BetfairAuth", MagicMock(return_value=mock_auth_instance)), \
+         patch("src.main.Flumine", MagicMock(return_value=mock_flumine_instance)), \
+         patch("src.main.clients", MagicMock()), \
+         patch("src.main.MarketStream", MagicMock()), \
+         patch("src.main.streaming_market_filter", MagicMock(return_value=MagicMock())), \
+         patch("src.main.streaming_market_data_filter", MagicMock(return_value=MagicMock())):
+        main()  # should NOT raise
+
+    mock_repo_instance.end_run.assert_called_once_with(mock_run.id)
+    mock_session.close.assert_called_once()
+    mock_dispose.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Flumine runtime error — still shuts down cleanly
+# ---------------------------------------------------------------------------
+
+
+def test_flumine_error_shuts_down_cleanly() -> None:
+    mock_run = _mock_run()
+    mock_repo_instance = MagicMock()
+    mock_repo_instance.create_run.return_value = mock_run
+
+    mock_session = MagicMock()
+    mock_auth_instance = MagicMock()
+    mock_auth_instance.login.return_value = MagicMock()
+    mock_auth_instance.get_competition_ids.return_value = {}
+
+    mock_flumine_instance = MagicMock()
+    mock_flumine_instance.run.side_effect = RuntimeError("Stream lost")
+    mock_dispose = MagicMock()
+
+    from src.main import main
+    with patch("src.main.load_config", MagicMock(return_value=MagicMock())), \
+         patch("src.main.load_secrets", MagicMock(return_value=MagicMock(database_url="postgresql+psycopg2://x"))), \
+         patch("src.main.setup_logging", MagicMock()), \
+         patch("src.main.get_session", MagicMock(return_value=mock_session)), \
+         patch("src.main.dispose_engine", mock_dispose), \
+         patch("src.main.Repository", MagicMock(return_value=mock_repo_instance)), \
+         patch("src.main.BetfairAuth", MagicMock(return_value=mock_auth_instance)), \
+         patch("src.main.Flumine", MagicMock(return_value=mock_flumine_instance)), \
+         patch("src.main.clients", MagicMock()), \
+         patch("src.main.MarketStream", MagicMock()), \
+         patch("src.main.streaming_market_filter", MagicMock(return_value=MagicMock())), \
+         patch("src.main.streaming_market_data_filter", MagicMock(return_value=MagicMock())):
+        main()  # should NOT raise
+
+    mock_repo_instance.end_run.assert_called_once_with(mock_run.id)
+    mock_session.close.assert_called_once()
+    mock_dispose.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Happy path — flumine wired correctly
+# ---------------------------------------------------------------------------
+
+
+def test_happy_path_adds_strategy_and_runs() -> None:
+    mock_run = _mock_run()
+    mock_repo_instance = MagicMock()
+    mock_repo_instance.create_run.return_value = mock_run
+
+    mock_auth_instance = MagicMock()
+    mock_auth_instance.login.return_value = MagicMock()
+    mock_auth_instance.get_competition_ids.return_value = {"Premier League": "10932509"}
+
+    mock_flumine_instance = MagicMock()
     mock_stream = MagicMock()
-    mock_stream.run = AsyncMock(side_effect=BetfairStreamError("Connection lost"))
-    mock_stream.stop = AsyncMock()
+    mock_stream_cls = MagicMock(return_value=mock_stream)
 
-    with (
-        patch("src.main.load_config") as mock_load_cfg,
-        patch("src.main.load_secrets") as mock_load_sec,
-        patch("src.main.setup_logging"),
-        patch("src.main.create_session_factory", return_value=_mock_session_factory()),
-        patch("src.main.Repository", return_value=mock_repo),
-        patch("src.main.BetfairAuth") as mock_auth_cls,
-        patch("src.main.GoalDetector") as mock_gd_cls,
-        patch("src.main.LTDStrategy") as mock_strat_cls,
-        patch("src.main.MarketStream", return_value=mock_stream),
-    ):
-        mock_load_cfg.return_value = MagicMock()
-        mock_load_cfg.return_value.logging.level = "INFO"
-        mock_load_sec.return_value = MagicMock()
+    from src.main import main
+    with patch("src.main.load_config", MagicMock(return_value=MagicMock())), \
+         patch("src.main.load_secrets", MagicMock(return_value=MagicMock(database_url="postgresql+psycopg2://x"))), \
+         patch("src.main.setup_logging", MagicMock()), \
+         patch("src.main.get_session", MagicMock(return_value=MagicMock())), \
+         patch("src.main.dispose_engine", MagicMock()), \
+         patch("src.main.Repository", MagicMock(return_value=mock_repo_instance)), \
+         patch("src.main.BetfairAuth", MagicMock(return_value=mock_auth_instance)), \
+         patch("src.main.Flumine", MagicMock(return_value=mock_flumine_instance)), \
+         patch("src.main.clients", MagicMock()), \
+         patch("src.main.MarketStream", mock_stream_cls), \
+         patch("src.main.streaming_market_filter", MagicMock(return_value=MagicMock())), \
+         patch("src.main.streaming_market_data_filter", MagicMock(return_value=MagicMock())):
+        main()
 
-        mock_auth = mock_auth_cls.return_value
-        mock_auth.login = AsyncMock(return_value=MagicMock())
-        mock_auth.get_competition_ids = AsyncMock(return_value={})
-
-        from src.main import main
-
-        await main()
-
-        mock_repo.end_run.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# Keyboard interrupt
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_main_keyboard_interrupt() -> None:
-    """Ctrl+C should trigger clean shutdown with end_run."""
-    mock_repo = MagicMock()
-    mock_repo.create_run = AsyncMock(return_value=MagicMock())
-    mock_repo.end_run = AsyncMock()
-
-    mock_stream = MagicMock()
-    mock_stream.run = AsyncMock(side_effect=KeyboardInterrupt())
-    mock_stream.stop = AsyncMock()
-
-    with (
-        patch("src.main.load_config") as mock_load_cfg,
-        patch("src.main.load_secrets") as mock_load_sec,
-        patch("src.main.setup_logging"),
-        patch("src.main.create_session_factory", return_value=_mock_session_factory()),
-        patch("src.main.Repository", return_value=mock_repo),
-        patch("src.main.BetfairAuth") as mock_auth_cls,
-        patch("src.main.GoalDetector") as mock_gd_cls,
-        patch("src.main.LTDStrategy") as mock_strat_cls,
-        patch("src.main.MarketStream", return_value=mock_stream),
-    ):
-        mock_load_cfg.return_value = MagicMock()
-        mock_load_cfg.return_value.logging.level = "INFO"
-        mock_load_sec.return_value = MagicMock()
-
-        mock_auth = mock_auth_cls.return_value
-        mock_auth.login = AsyncMock(return_value=MagicMock())
-        mock_auth.get_competition_ids = AsyncMock(return_value={})
-
-        from src.main import main
-
-        await main()
-
-        mock_repo.end_run.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# Config failure
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_main_config_failure() -> None:
-    """Config error should exit with code 1 before any DB or API calls."""
-    with (
-        patch("src.main.load_config", side_effect=SystemExit(1)),
-        patch("src.main.load_secrets"),
-        patch("src.main.setup_logging"),
-        patch("src.main.create_session_factory") as mock_session_factory,
-        patch("src.main.Repository") as mock_repo_cls,
-        patch("src.main.BetfairAuth") as mock_auth_cls,
-    ):
-        from src.main import main
-
-        with pytest.raises(SystemExit) as exc_info:
-            await main()
-
-        assert exc_info.value.code == 1
-        # Should NOT have called DB or Auth
-        mock_session_factory.assert_not_called()
+    mock_flumine_instance.add_strategy.assert_called_once_with(mock_stream)
+    mock_flumine_instance.run.assert_called_once()
+    # Phase 1: strategy=None wired in
+    mock_stream_cls.assert_called_once()
+    call_kwargs = mock_stream_cls.call_args.kwargs
+    assert call_kwargs.get("strategy") is None
+    assert call_kwargs.get("run_id") == mock_run.id

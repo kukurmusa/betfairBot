@@ -5,8 +5,9 @@ description = "Betfair Lay-the-Draw automated trading bot"
 requires-python = ">=3.11"
 dependencies = [
     "betfairlightweight>=2.18.0",
-    "sqlalchemy[asyncio]>=2.0.30",
-    "asyncpg>=0.29.0",
+    "flumine>=2.6.0",
+    "sqlalchemy>=2.0.30",
+    "psycopg2-binary>=2.9.0",
     "alembic>=1.13.0",
     "pydantic>=2.7.0",
     "pydantic-settings>=2.2.0",
@@ -17,12 +18,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0",
     "pytest-cov>=5.0.0",
 ]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.coverage.run]

@@ -17,7 +17,7 @@
 ## Code style
 - Python 3.11+, type hints on all function signatures
 - No `Any` types without a comment explaining why
-- Async/await for all I/O — no blocking calls in the event loop
+- Synchronous code throughout — Flumine owns the event loop; do not introduce async/await
 - All public functions get a docstring
 - Max function length: 40 lines — extract helpers if longer
 

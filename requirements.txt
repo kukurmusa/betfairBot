@@ -1,6 +1,6 @@
 betfairlightweight>=2.18.0
-sqlalchemy[asyncio]>=2.0.30
-asyncpg>=0.29.0
+flumine>=2.6.0
+sqlalchemy>=2.0.30
 psycopg2-binary>=2.9.0
 alembic>=1.13.0
 pydantic>=2.7.0
@@ -8,5 +8,4 @@ pydantic-settings>=2.2.0
 pyyaml>=6.0
 python-dotenv>=1.0.0
 pytest>=8.0.0
-pytest-asyncio>=0.23.0
 pytest-cov>=5.0.0

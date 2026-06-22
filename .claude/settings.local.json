@@ -4,7 +4,12 @@
       "Bash(python -m pytest tests/ --tb=short -q)",
       "Bash(git init *)",
       "Bash(git remote *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m 'Initial commit: Betfair LTD betting bot *)",
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git *)",
+      "Bash(grep *)"
     ]
   }
 }
