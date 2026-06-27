@@ -250,6 +250,14 @@ class Repository:
             self._session.rollback()
             raise DatabaseError(f"Failed to insert trade for market {market_id}: {exc}") from exc
 
+    def get_trades_for_run(self, run_id: uuid.UUID) -> Sequence[Trade]:
+        """Return all trades for a run ordered by opened_at."""
+        try:
+            stmt = select(Trade).where(Trade.run_id == run_id).order_by(Trade.opened_at)
+            return self._session.execute(stmt).scalars().all()
+        except Exception as exc:
+            raise DatabaseError(f"Failed to query trades for run {run_id}: {exc}") from exc
+
     def get_open_positions(self, run_id: uuid.UUID) -> Sequence[Trade]:
         """Return all trades with no exit order (open positions)."""
         try:
