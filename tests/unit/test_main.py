@@ -96,6 +96,9 @@ def test_keyboard_interrupt_shuts_down_cleanly() -> None:
          patch("src.main.BetfairAuth", MagicMock(return_value=mock_auth_instance)), \
          patch("src.main.Flumine", MagicMock(return_value=mock_flumine_instance)), \
          patch("src.main.clients", MagicMock()), \
+         patch("src.main.RiskManager", MagicMock()), \
+         patch("src.main.GoalDetector", MagicMock()), \
+         patch("src.main.LTDStrategy", MagicMock()), \
          patch("src.main.MarketStream", MagicMock()), \
          patch("src.main.streaming_market_filter", MagicMock(return_value=MagicMock())), \
          patch("src.main.streaming_market_data_filter", MagicMock(return_value=MagicMock())):
@@ -135,6 +138,9 @@ def test_flumine_error_shuts_down_cleanly() -> None:
          patch("src.main.BetfairAuth", MagicMock(return_value=mock_auth_instance)), \
          patch("src.main.Flumine", MagicMock(return_value=mock_flumine_instance)), \
          patch("src.main.clients", MagicMock()), \
+         patch("src.main.RiskManager", MagicMock()), \
+         patch("src.main.GoalDetector", MagicMock()), \
+         patch("src.main.LTDStrategy", MagicMock()), \
          patch("src.main.MarketStream", MagicMock()), \
          patch("src.main.streaming_market_filter", MagicMock(return_value=MagicMock())), \
          patch("src.main.streaming_market_data_filter", MagicMock(return_value=MagicMock())):
@@ -162,6 +168,8 @@ def test_happy_path_adds_strategy_and_runs() -> None:
     mock_flumine_instance = MagicMock()
     mock_stream = MagicMock()
     mock_stream_cls = MagicMock(return_value=mock_stream)
+    mock_ltd_instance = MagicMock()
+    mock_ltd_cls = MagicMock(return_value=mock_ltd_instance)
 
     from src.main import main
     with patch("src.main.load_config", MagicMock(return_value=MagicMock())), \
@@ -173,6 +181,9 @@ def test_happy_path_adds_strategy_and_runs() -> None:
          patch("src.main.BetfairAuth", MagicMock(return_value=mock_auth_instance)), \
          patch("src.main.Flumine", MagicMock(return_value=mock_flumine_instance)), \
          patch("src.main.clients", MagicMock()), \
+         patch("src.main.RiskManager", MagicMock()), \
+         patch("src.main.GoalDetector", MagicMock()), \
+         patch("src.main.LTDStrategy", mock_ltd_cls), \
          patch("src.main.MarketStream", mock_stream_cls), \
          patch("src.main.streaming_market_filter", MagicMock(return_value=MagicMock())), \
          patch("src.main.streaming_market_data_filter", MagicMock(return_value=MagicMock())):
@@ -180,8 +191,7 @@ def test_happy_path_adds_strategy_and_runs() -> None:
 
     mock_flumine_instance.add_strategy.assert_called_once_with(mock_stream)
     mock_flumine_instance.run.assert_called_once()
-    # Phase 1: strategy=None wired in
     mock_stream_cls.assert_called_once()
     call_kwargs = mock_stream_cls.call_args.kwargs
-    assert call_kwargs.get("strategy") is None
+    assert call_kwargs.get("strategy") is mock_ltd_instance
     assert call_kwargs.get("run_id") == mock_run.id

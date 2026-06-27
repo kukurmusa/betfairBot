@@ -18,7 +18,10 @@ from src.config.settings import ConfigError, load_config, load_secrets
 from src.db.repository import Repository
 from src.db.session import dispose_engine, get_session
 from src.exceptions import BetfairAuthError
+from src.goal_detection.detector import GoalDetector
 from src.logging_config import setup_logging
+from src.risk.risk_manager import RiskManager
+from src.strategy.ltd_strategy import LTDStrategy
 from src.streaming.market_stream import MarketStream
 
 logger = logging.getLogger(__name__)
@@ -72,15 +75,23 @@ def main() -> None:
             ladder_levels=3,
         )
 
-        # 6. Streaming strategy
-        # Phase 1: data logger only (strategy=None).
-        # Phase 3+: instantiate LTDStrategy, RiskManager, GoalDetector and pass here.
+        # 6. Strategy stack
+        risk_manager = RiskManager(config.strategy)
+        goal_detector = GoalDetector(config.strategy.goal_spike_threshold)
+        ltd_strategy = LTDStrategy(
+            config=config.strategy,
+            risk_manager=risk_manager,
+            goal_detector=goal_detector,
+            repository=repository,
+            run_id=run.id,
+        )
+
         stream = MarketStream(
             market_filter=market_filter,
             market_data_filter=data_filter,
             repository=repository,
             run_id=run.id,
-            strategy=None,
+            strategy=ltd_strategy,
         )
 
         # 7. Flumine handles connection, reconnection, and heartbeats
@@ -88,7 +99,7 @@ def main() -> None:
         framework = Flumine(client=client)
         framework.add_strategy(stream)
 
-        logger.info("Bot started (run_id=%s, mode=paper)", run.id)
+        logger.info("Bot started (run_id=%s, mode=%s)", run.id, run_mode)
         try:
             framework.run()
         except Exception as exc:
