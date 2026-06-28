@@ -13,6 +13,7 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
+import sqlalchemy
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 from dotenv import load_dotenv
@@ -61,6 +62,8 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
+        connection.execute(sqlalchemy.text("CREATE SCHEMA IF NOT EXISTS trading"))
+        connection.commit()
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
