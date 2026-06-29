@@ -42,6 +42,10 @@ class StreamingConfig(BaseModel):
         default=["Premier League", "Championship"],
         min_length=1,
     )
+    market_countries: list[str] = Field(
+        default=["GB", "DE", "ES", "IT", "FR", "NL", "PT"],
+        description="ISO country codes passed to streaming filter to stay under the 200-market cap.",
+    )
 
 
 _VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})

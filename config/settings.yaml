@@ -12,6 +12,19 @@ strategy:
   max_liability_per_bet: 5.0
 
 streaming:
+  # Country codes for the streaming market filter.
+  # Keeps subscriptions under Betfair's 200-market cap.
+  # Add host country code when a World Cup / Euros is active.
+  market_countries:
+    - "GB"   # Premier League, Championship, Scottish Prem
+    - "DE"   # Bundesliga
+    - "ES"   # La Liga
+    - "IT"   # Serie A
+    - "FR"   # Ligue 1
+    - "NL"   # Eredivisie
+    - "PT"   # Primeira Liga
+    - "TR"   # Süper Lig
+    - "BE"   # First Division A
   target_competitions:
     # English domestic
     - "Premier League"

@@ -65,10 +65,14 @@ def main() -> None:
         except BetfairAuthError as exc:
             logger.warning("Competition resolution failed: %s", exc)
 
-        # 5. Build market filter — event type 1 = football, MATCH_ODDS only
+        # 5. Build market filter — event type 1 = football, MATCH_ODDS only.
+        #    market_countries keeps us under the 200-market streaming cap.
+        #    turn_in_play_enabled=True excludes outrights and non-match markets.
         market_filter = streaming_market_filter(
             event_type_ids=["1"],
             market_types=["MATCH_ODDS"],
+            market_countries=config.streaming.market_countries,
+            turn_in_play_enabled=True,
         )
         data_filter = streaming_market_data_filter(
             fields=["EX_BEST_OFFERS", "EX_MARKET_DEF"],
