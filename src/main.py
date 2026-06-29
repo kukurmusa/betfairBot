@@ -71,7 +71,7 @@ def main() -> None:
         market_filter = streaming_market_filter(
             event_type_ids=["1"],
             market_types=["MATCH_ODDS"],
-            market_countries=config.streaming.market_countries,
+            country_codes=config.streaming.market_countries,
             turn_in_play_enabled=True,
         )
         data_filter = streaming_market_data_filter(
