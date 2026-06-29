@@ -75,7 +75,7 @@ class _FakeCompetition:
 @patch("src.auth.betfair_auth.betfairlightweight.APIClient")
 def test_get_competition_ids_success(mock_client_class: MagicMock) -> None:
     mock_client = mock_client_class.return_value
-    mock_client.list_competitions.return_value = [
+    mock_client.betting.list_competitions.return_value = [
         _FakeCompetition("Premier League", "10932509"),
         _FakeCompetition("Championship", "7129730"),
         _FakeCompetition("La Liga", "117"),
@@ -89,7 +89,7 @@ def test_get_competition_ids_success(mock_client_class: MagicMock) -> None:
 @patch("src.auth.betfair_auth.betfairlightweight.APIClient")
 def test_get_competition_ids_partial_match(mock_client_class: MagicMock) -> None:
     mock_client = mock_client_class.return_value
-    mock_client.list_competitions.return_value = [_FakeCompetition("Premier League", "10932509")]
+    mock_client.betting.list_competitions.return_value = [_FakeCompetition("Premier League", "10932509")]
     auth = BetfairAuth(_make_secrets())
     auth.login()
     result = auth.get_competition_ids(["Premier League", "Serie A"])
@@ -99,7 +99,7 @@ def test_get_competition_ids_partial_match(mock_client_class: MagicMock) -> None
 @patch("src.auth.betfair_auth.betfairlightweight.APIClient")
 def test_get_competition_ids_no_match(mock_client_class: MagicMock) -> None:
     mock_client = mock_client_class.return_value
-    mock_client.list_competitions.return_value = []
+    mock_client.betting.list_competitions.return_value = []
     auth = BetfairAuth(_make_secrets())
     auth.login()
     assert auth.get_competition_ids(["Premier League"]) == {}

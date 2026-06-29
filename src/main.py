@@ -55,20 +55,20 @@ def main() -> None:
             logger.critical("Authentication failed: %s", exc)
             sys.exit(1)
 
-        # 4. Competition IDs — football only (event type 1)
-        competition_ids: dict[str, str] = {}
+        # 4. Resolve competition IDs for logging — the Betfair streaming API does not
+        #    support competition_id filtering at subscription level, so we log what we
+        #    found and rely on entry criteria (odds, volume) to filter irrelevant markets.
         try:
             competition_ids = auth.get_competition_ids(config.streaming.target_competitions)
+            if competition_ids:
+                logger.info("Tracking %d competition(s): %s", len(competition_ids), list(competition_ids.keys()))
         except BetfairAuthError as exc:
-            logger.warning(
-                "Competition resolution failed: %s. Stream will proceed without competition filter.", exc
-            )
+            logger.warning("Competition resolution failed: %s", exc)
 
-        # 5. Build market filter
+        # 5. Build market filter — event type 1 = football, MATCH_ODDS only
         market_filter = streaming_market_filter(
-            event_type_ids=["1"],           # football only
+            event_type_ids=["1"],
             market_types=["MATCH_ODDS"],
-            competition_ids=list(competition_ids.values()) or None,
         )
         data_filter = streaming_market_data_filter(
             fields=["EX_BEST_OFFERS", "EX_MARKET_DEF"],

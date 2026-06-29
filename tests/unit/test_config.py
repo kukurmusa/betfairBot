@@ -128,11 +128,12 @@ def test_secrets_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert secrets.betfair_username == "test_user"
 
 
-def test_secrets_config_missing_required(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_secrets_config_missing_required(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Missing required env vars should raise ConfigError via ValidationError."""
-    # Clear env so required fields are absent
     for key in SAMPLE_SECRETS_ENV:
         monkeypatch.delenv(key, raising=False)
+    # Change CWD so pydantic-settings finds no .env file on disk
+    monkeypatch.chdir(tmp_path)
 
     with pytest.raises(ConfigError):
         load_secrets()

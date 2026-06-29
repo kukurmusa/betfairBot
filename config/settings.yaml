@@ -13,8 +13,25 @@ strategy:
 
 streaming:
   target_competitions:
+    # English domestic
     - "Premier League"
     - "Championship"
+    # Top European leagues
+    - "La Liga"
+    - "Bundesliga"
+    - "Serie A"
+    - "Ligue 1"
+    - "Primeira Liga"
+    - "Eredivisie"
+    # European club competitions
+    - "UEFA Champions League"
+    - "UEFA Europa League"
+    - "UEFA Conference League"
+    # National team tournaments
+    - "FIFA World Cup"
+    - "UEFA European Championship"
+    - "UEFA Nations League"
+    - "Copa America"
 
 logging:
   level: INFO

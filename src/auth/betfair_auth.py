@@ -70,8 +70,9 @@ class BetfairAuth:
 
         logger.info("Resolving competition IDs for: %s", competition_names)
         try:
-            competitions = self._client.list_competitions(
-                market_filter={"eventTypeIds": ["1"]},
+            from betfairlightweight.filters import market_filter as bfl_filter
+            competitions = self._client.betting.list_competitions(
+                filter=bfl_filter(event_type_ids=["1"]),
             )
         except Exception as exc:
             raise BetfairAuthError(f"Failed to list competitions: {exc}") from exc
