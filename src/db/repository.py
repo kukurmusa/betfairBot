@@ -113,6 +113,14 @@ class Repository:
         stmt = select(Market).where(Market.betfair_market_id == betfair_market_id)
         return self._session.execute(stmt).scalar_one_or_none()
 
+    def get_markets_for_run(self, run_id: uuid.UUID) -> Sequence[Market]:
+        """Return all markets for a given run, ordered by event_name."""
+        try:
+            stmt = select(Market).where(Market.run_id == run_id).order_by(Market.event_name)
+            return self._session.execute(stmt).scalars().all()
+        except Exception as exc:
+            raise DatabaseError(f"Failed to query markets for run {run_id}: {exc}") from exc
+
     def get_active_markets(self) -> Sequence[Market]:
         """Return all markets currently in ``pending`` or ``active`` status."""
         stmt = select(Market).where(Market.status.in_(["pending", "active"]))
@@ -121,6 +129,14 @@ class Repository:
     # ------------------------------------------------------------------
     # Ticks
     # ------------------------------------------------------------------
+
+    def get_ticks_for_market(self, market_id: uuid.UUID) -> Sequence[Tick]:
+        """Return all ticks for a market ordered by recorded_at."""
+        try:
+            stmt = select(Tick).where(Tick.market_id == market_id).order_by(Tick.recorded_at)
+            return self._session.execute(stmt).scalars().all()
+        except Exception as exc:
+            raise DatabaseError(f"Failed to query ticks for market {market_id}: {exc}") from exc
 
     def insert_tick(
         self,

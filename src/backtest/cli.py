@@ -1,10 +1,15 @@
 """CLI entry point for the LTD backtester.
 
-Usage::
+Three data sources are supported:
 
-    python -m src.backtest.cli --file data/1.12345.bz2
+    # Single .bz2 file from Betfair historical data
+    python -m src.backtest.cli --file data/1.123456.bz2
+
+    # Directory of .bz2 files
     python -m src.backtest.cli --dir data/ --output report.csv
-    python -m src.backtest.cli --dir data/ --config config/settings.yaml
+
+    # Tick data recorded during a previous paper/live run
+    python -m src.backtest.cli --db-run <run-uuid> --output report.csv
 """
 
 from __future__ import annotations
@@ -12,9 +17,11 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import uuid
 from pathlib import Path
 
-from src.backtest.loader import HistoricalLoader
+from src.backtest.db_loader import DbLoader
+from src.backtest.loader import HistoricalLoader, MarketData
 from src.backtest.replay import BacktestReplay
 from src.backtest.report import BacktestReport
 from src.config.settings import ConfigError, load_config, load_secrets
@@ -29,13 +36,34 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--file", type=Path, metavar="FILE", help="Single .bz2 market file")
     group.add_argument("--dir", type=Path, metavar="DIR", help="Directory of .bz2 files")
+    group.add_argument(
+        "--db-run", type=uuid.UUID, metavar="RUN_ID",
+        help="UUID of a recorded paper/live run to replay",
+    )
     parser.add_argument("--output", type=Path, default=None, metavar="CSV", help="CSV output path")
     parser.add_argument("--config", type=Path, default=None, metavar="YAML", help="settings.yaml path")
     return parser.parse_args(argv)
 
 
+def _load_markets(
+    args: argparse.Namespace,
+    repository: Repository,
+    logger: logging.Logger,
+) -> list[MarketData]:
+    """Dispatch to the correct loader based on CLI arguments."""
+    if args.file:
+        result = HistoricalLoader().load_file(args.file)
+        return [result] if result is not None else []
+    if args.dir:
+        return list(HistoricalLoader().load_directory(args.dir))
+    # --db-run
+    markets = DbLoader(repository).load_run(args.db_run)
+    logger.info("Loaded %d markets from DB run %s", len(markets), args.db_run)
+    return markets
+
+
 def main(argv: list[str] | None = None) -> None:
-    """Run the backtester against one file or a directory and print the report."""
+    """Run the backtester against a file, directory, or recorded DB run."""
     args = _parse_args(argv)
 
     try:
@@ -48,19 +76,14 @@ def main(argv: list[str] | None = None) -> None:
     setup_logging(config.logging)
     logger = logging.getLogger(__name__)
 
-    loader = HistoricalLoader()
-    if args.file:
-        market_list = [m for m in [loader.load_file(args.file)] if m is not None]
-    else:
-        market_list = list(loader.load_directory(args.dir))
-
-    if not market_list:
-        logger.error("No valid market data found — check file paths")
-        sys.exit(1)
-
     session = get_session(secrets.database_url)
     repository = Repository(session)
     try:
+        market_list = _load_markets(args, repository, logger)
+        if not market_list:
+            logger.error("No valid market data found — check source arguments")
+            sys.exit(1)
+
         result = BacktestReplay(config.strategy, repository).run(market_list)
         logger.info(
             "Backtest complete: %d markets, %d ticks (run=%s)",
