@@ -1,7 +1,14 @@
 # Betfair LTD Bot — Docker Compose
-# Start:  docker compose --env-file .env up -d
-# Stop:   docker compose down
-# Wipe:   docker compose down -v  (destroys all data)
+#
+# USAGE
+#   Local dev  (DB only — run the bot via Python directly):
+#     docker compose up -d
+#
+#   Full local Docker  (everything in containers):
+#     docker compose --profile bot up -d
+#
+#   Stop:   docker compose down
+#   Wipe:   docker compose down -v   (destroys all data!)
 
 services:
 
@@ -40,6 +47,26 @@ services:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
+
+  # Only started with: docker compose --profile bot up -d
+  bot:
+    profiles: ["bot"]
+    build: .
+    container_name: betfair_bot
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Override DB host to Docker's internal service name (not localhost)
+      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER:-bot}:${POSTGRES_PASSWORD:-bot_password}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-betfair_ltd}"
+      DATABASE_URL_SYNC: "postgresql+psycopg2://${POSTGRES_USER:-bot}:${POSTGRES_PASSWORD:-bot_password}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-betfair_ltd}"
+      # Certs from ./certs/ on the host are mounted at /certs inside the container
+      BETFAIR_CERT_PATH: /certs/betfair.crt
+      BETFAIR_CERT_KEY_PATH: /certs/betfair.key
+    volumes:
+      - ./certs:/certs:ro
 
 volumes:
   postgres_data:
