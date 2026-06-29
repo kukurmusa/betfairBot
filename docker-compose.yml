@@ -43,10 +43,16 @@ services:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_INSTALL_PLUGINS: grafana-clock-panel
+      # Forwarded so grafana/provisioning/datasources/postgres.yaml can reference them
+      POSTGRES_USER: ${POSTGRES_USER:-bot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bot_password}
+      POSTGRES_DB: ${POSTGRES_DB:-betfair_ltd}
     ports:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
 
   # Only started with: docker compose --profile bot up -d
   bot:

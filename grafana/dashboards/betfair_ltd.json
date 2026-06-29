@@ -1,0 +1,308 @@
+{
+  "annotations": { "list": [] },
+  "description": "Live paper trading monitor — matches, tick collection, and P&L",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            {
+              "options": {
+                "paper":    { "color": "blue",   "index": 0, "text": "PAPER" },
+                "live":     { "color": "red",    "index": 1, "text": "LIVE" },
+                "backtest": { "color": "purple", "index": 2, "text": "BACKTEST" }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value"
+      },
+      "title": "Bot Mode",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT mode FROM trading.runs WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "title": "Matches Tracked (all time)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(DISTINCT id) AS value FROM trading.markets",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "title": "Ticks Recorded (all time)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS value FROM trading.ticks",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "yellow", "value": 0 },
+              { "color": "green",  "value": 0.01 }
+            ]
+          },
+          "unit": "currencyGBP",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "title": "Paper P&L — Current Run",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(net_pnl), 0)::float AS value FROM trading.trades WHERE run_id = (SELECT id FROM trading.runs WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "id": 5,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "show": false },
+        "showHeader": true
+      },
+      "title": "Currently Streaming (ticks in last 5 min)",
+      "type": "table",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT m.event_name AS \"Match\", TO_CHAR(m.kick_off AT TIME ZONE 'UTC', 'DD/MM HH24:MI') AS \"Kick-off\", m.status AS \"Status\", COUNT(t.id) AS \"Ticks\", TO_CHAR(MAX(t.recorded_at) AT TIME ZONE 'UTC', 'HH24:MI:SS') AS \"Last Tick\" FROM trading.markets m JOIN trading.ticks t ON t.market_id = m.id GROUP BY m.id, m.event_name, m.kick_off, m.status HAVING MAX(t.recorded_at) > NOW() - INTERVAL '5 minutes' ORDER BY MAX(t.recorded_at) DESC",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "P&L" },
+            "properties": [
+              { "id": "unit", "value": "currencyGBP" },
+              { "id": "decimals", "value": 2 },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "yellow", "value": 0 },
+                    { "color": "green", "value": 0.01 }
+                  ]
+                }
+              },
+              { "id": "custom.displayMode", "value": "color-text" }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "id": 6,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "show": false },
+        "showHeader": true
+      },
+      "title": "All Matches — Current Run",
+      "type": "table",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT m.event_name AS \"Match\", TO_CHAR(m.kick_off AT TIME ZONE 'UTC', 'DD/MM HH24:MI') AS \"Kick-off\", m.status AS \"Status\", COUNT(DISTINCT t.id) AS \"Ticks\", COALESCE(SUM(tr.net_pnl)::float, 0) AS \"P&L\" FROM trading.markets m LEFT JOIN trading.ticks t ON t.market_id = m.id LEFT JOIN trading.orders o ON o.market_id = m.id LEFT JOIN trading.trades tr ON tr.order_id = o.id WHERE m.run_id = (SELECT id FROM trading.runs WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1) GROUP BY m.id, m.event_name, m.kick_off, m.status ORDER BY m.kick_off DESC",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 8 }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "title": "Ticks Collected Per Hour",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('hour', recorded_at) AS time, COUNT(*) AS \"Ticks\" FROM trading.ticks WHERE $__timeFilter(recorded_at) GROUP BY 1 ORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 5 },
+          "unit": "short",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "id": 8,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Draw Price — $market",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT t.recorded_at AS time, t.draw_lay_price::float AS \"Lay\", t.draw_back_price::float AS \"Back\" FROM trading.ticks t JOIN trading.markets m ON m.id = t.market_id WHERE m.event_name = '$market' AND $__timeFilter(t.recorded_at) ORDER BY t.recorded_at",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["betfair", "trading"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": { "type": "postgres", "uid": "betfair-ltd-postgres" },
+        "definition": "SELECT DISTINCT event_name FROM trading.markets ORDER BY 1",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Market",
+        "multi": false,
+        "name": "market",
+        "options": [],
+        "query": "SELECT DISTINCT event_name FROM trading.markets ORDER BY 1",
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Betfair LTD Bot",
+  "uid": "betfair-ltd-001",
+  "version": 1
+}
