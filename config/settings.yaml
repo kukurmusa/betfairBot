@@ -25,6 +25,9 @@ streaming:
     - "PT"   # Primeira Liga
     - "TR"   # Süper Lig
     - "BE"   # First Division A
+    - "US"   # World Cup 2026 (USA venues)
+    - "CA"   # World Cup 2026 (Canada venues)
+    - "MX"   # World Cup 2026 (Mexico venues)
   target_competitions:
     # English domestic
     - "Premier League"
